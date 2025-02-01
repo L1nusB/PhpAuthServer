@@ -14,7 +14,9 @@ class EnvironmentAccess {
 
     public function __construct() {
         // Connect to LDAP and cache user info
-        $this->ldap = ldap_connect("ldap://ldc01.linus.com");
+        // $this->ldap = ldap_connect("ldap://ldc01.linus.com");
+        $this->ldap = ldap_connect("ldap://ldc01.linus.com") or die("Could not connect to LDAP server.");
+
         $this->user = $_SERVER['PHP_AUTH_USER'];
         
         // Cache user's groups if not already in session
@@ -24,13 +26,33 @@ class EnvironmentAccess {
     }
 
     private function cacheUserGroups() {
-        // Perform LDAP search to get user's groups
-        $bind = ldap_bind($this->ldap, $this->user . "@linus.com", $_SERVER['PHP_AUTH_PW']);
+        $bind = @ldap_bind($this->ldap, $this->user . "@linus.com", $_SERVER['PHP_AUTH_PW']);
+    
+        if (!$bind) {
+            die("LDAP bind failed: " . ldap_error($this->ldap));
+        }
+    
         $result = ldap_search($this->ldap, "DC=linus,DC=com", 
             "(sAMAccountName=" . $this->user . ")");
-        // Store groups in session
-        $_SESSION['user_groups'] = [/* extracted groups */];
+        
+        if (!$result) {
+            die("LDAP search failed: " . ldap_error($this->ldap));
+        }
+    
+        // Extract and store groups
+        $entries = ldap_get_entries($this->ldap, $result);
+        if ($entries['count'] == 0) {
+            die("No user found in LDAP.");
+        }
+    
+        $_SESSION['user_groups'] = [];
+        if (isset($entries[0]['memberof'])) {
+            foreach ($entries[0]['memberof'] as $group) {
+                $_SESSION['user_groups'][] = $group;
+            }
+        }
     }
+    
 
     public function canAccessEnvironment($env) {
         foreach ($_SESSION['user_groups'] as $group) {
